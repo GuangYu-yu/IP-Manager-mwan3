@@ -58,9 +58,13 @@ add_ipset() {
         exit 1
     }
 
+    tmp_name="${name}_tmp"
     ipset create "$name" hash:net family "$family" -exist
-    ipset flush "$name"
-    sed "s/^/add $name /" "$f" | ipset restore -!
+    ipset create "$tmp_name" hash:net family "$family" -exist
+    ipset flush "$tmp_name"
+    sed "s/^/add $tmp_name /" "$f" | ipset restore -!
+    ipset swap "$name" "$tmp_name"
+    ipset destroy "$tmp_name"
 
     grep -v "^$name " $CFG_DIR/ipset_list > /tmp/ipset_list
     mv /tmp/ipset_list $CFG_DIR/ipset_list
@@ -82,8 +86,14 @@ clear_and_update_ipset() {
             echo "下载失败或文件为空"
             exit 1
         }
-        ipset flush "$name"
-        sed "s/^/add $name /" "$f" | ipset restore -!
+        
+        family="inet$([ "$type" -eq 6 ] && echo 6)"
+        tmp_name="${name}_tmp"
+        ipset create "$tmp_name" hash:net family "$family" -exist
+        ipset flush "$tmp_name"
+        sed "s/^/add $tmp_name /" "$f" | ipset restore -!
+        ipset swap "$name" "$tmp_name"
+        ipset destroy "$tmp_name"
     }
 }
 EOF

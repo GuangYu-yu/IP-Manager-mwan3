@@ -32,16 +32,20 @@ add_nftables_set() {
     rm -f "$f"
     download_file "$f" "$url" || { echo "下载失败或文件为空"; exit 1; }
 
-    # 创建表和集合
-    nft add table "$family" filter 2>/dev/null || true
-    nft delete set "$family" filter "$name" 2>/dev/null || true
-    nft add set "$family" filter "$name" "{ type ${family}_addr; flags interval; auto-merge; }"
+    # 准备原子更新脚本
+    nft_script="$CFG_DIR/${name}.nft"
+    {
+        echo "add table $family filter"
+        echo "add set $family filter $name { type ${family}_addr; flags interval; auto-merge; }"
+        echo "flush set $family filter $name"
+        echo -n "add element $family filter $name { "
+        tr '\n' ',' < "$f" | sed 's/,$//'
+        echo " }"
+    } > "$nft_script"
 
-    # 添加IP元素
-    nft flush set "$family" filter "$name"
-    while read -r line; do
-        [ -n "$line" ] && nft add element "$family" filter "$name" "{ $line }"
-    done < "$f"
+    # 原子执行
+    nft -f "$nft_script"
+    rm -f "$nft_script"
 
     # 更新列表
     grep -v "^$name " "$CFG_DIR/nftables_list" > /tmp/nftables_list
@@ -58,10 +62,19 @@ clear_and_update_nftables_set() {
         validate_input
         download_file "$f" "$url" || { echo "下载失败或文件为空"; exit 1; }
         family="ip$([ "$type" -eq 6 ] && echo 6)"
-        nft flush set "$family" filter "$name"
-        while read -r line; do
-            [ -n "$line" ] && nft add element "$family" filter "$name" "{ $line }"
-        done < "$f"
+        
+        # 准备原子更新脚本
+        nft_script="$CFG_DIR/${name}.nft"
+        {
+            echo "flush set $family filter $name"
+            echo -n "add element $family filter $name { "
+            tr '\n' ',' < "$f" | sed 's/,$//'
+            echo " }"
+        } > "$nft_script"
+
+        # 原子执行
+        nft -f "$nft_script"
+        rm -f "$nft_script"
     }
 }
 EOF
@@ -82,13 +95,20 @@ start() {
         [ -f "$f" ] || continue
 
         family="ip$([ "$type" -eq 6 ] && echo 6)"
-        nft add table "$family" filter 2>/dev/null || true
-        nft add set "$family" filter "$name" "{ type ${family}_addr; flags interval; auto-merge; }" 2>/dev/null
-        nft flush set "$family" filter "$name"
-
-        while read -r line; do
-            [ -n "$line" ] && nft add element "$family" filter "$name" "{ $line }" 2>/dev/null
-        done < "$f"
+        
+        # 准备原子加载脚本
+        nft_script="$CFG_DIR/${name}_load.nft"
+        {
+            echo "add table $family filter"
+            echo "add set $family filter $name { type ${family}_addr; flags interval; auto-merge; }"
+            echo "flush set $family filter $name"
+            echo -n "add element $family filter $name { "
+            tr '\n' ',' < "$f" | sed 's/,$//'
+            echo " }"
+        } > "$nft_script"
+        
+        nft -f "$nft_script" 2>/dev/null
+        rm -f "$nft_script"
     done < "$CFG_DIR/nftables_list"
 }
 EOF
