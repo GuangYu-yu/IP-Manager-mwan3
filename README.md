@@ -16,42 +16,42 @@ cat > /etc/config/ipset_configs/vars.sh << "EOF"
 CFG_DIR="/etc/config/ipset_configs"
 
 validate_input(){
-case "$name" in *[!a-zA-Z0-9_-]*|"") echo "无效的名称"; exit 1;; esac
-[ -n "$url" ] && case "$url" in http://*|https://*) ;; *) echo "无效的URL"; exit 1;; esac
-[ "$type" = 4 -o "$type" = 6 ] || { echo "无效的类型"; exit 1; }
+  case "$name" in *[!a-zA-Z0-9_-]*|"") echo "无效的名称"; exit 1;; esac
+  [ -n "$url" ] && case "$url" in http://*|https://*) ;; *) echo "无效的URL"; exit 1;; esac
+  [ "$type" = 4 -o "$type" = 6 ] || { echo "无效的类型"; exit 1; }
 }
 
 download_file(){
-tgt=$1; src=$2; retries=3; count=0
-while [ $count -lt $retries ]; do
-wget -qO "$tgt" "$src" && [ -s "$tgt" ] && return 0
-count=$((count+1)); sleep 1
-done; return 1
+  tgt=$1; src=$2; retries=3; count=0
+  while [ $count -lt $retries ]; do
+    wget -qO "$tgt" "$src" && [ -s "$tgt" ] && return 0
+    count=$((count+1)); sleep 1
+  done; return 1
 }
 
 add_ipset(){
-validate_input
-family="inet$([ "$type" -eq 6 ] && echo 6)"
-f=$CFG_DIR/${name}.txt; rm -f "$f"
-download_file "$f" "$url" || { echo "下载失败或文件为空"; exit 1; }
-ipset create "$name" hash:net family "$family" -exist
-ipset flush "$name"
-sed "s/^/add $name /" "$f" | ipset restore -!
-grep -v "^$name " $CFG_DIR/ipset_list > /tmp/ipset_list
-mv /tmp/ipset_list $CFG_DIR/ipset_list
-echo "$name $url $type" >> $CFG_DIR/ipset_list
+  validate_input
+  family="inet$([ "$type" -eq 6 ] && echo 6)"
+  f=$CFG_DIR/${name}.txt; rm -f "$f"
+  download_file "$f" "$url" || { echo "下载失败或文件为空"; exit 1; }
+  ipset create "$name" hash:net family "$family" -exist
+  ipset flush "$name"
+  sed "s/^/add $name /" "$f" | ipset restore -!
+  grep -v "^$name " $CFG_DIR/ipset_list > /tmp/ipset_list
+  mv /tmp/ipset_list $CFG_DIR/ipset_list
+  echo "$name $url $type" >> $CFG_DIR/ipset_list
 }
 
 clear_and_update_ipset(){
-f=$CFG_DIR/${name}.txt; : > "$f"
-grep "^$name " $CFG_DIR/ipset_list | awk "{print \$2, \$3}" | {
-read url type
-[ -z "$url" -o -z "$type" ] && { echo "未找到 URL 或 类型"; exit 1; }
-validate_input
-download_file "$f" "$url" || { echo "下载失败或文件为空"; exit 1; }
-ipset flush "$name"
-sed "s/^/add $name /" "$f" | ipset restore -!
-}
+  f=$CFG_DIR/${name}.txt; : > "$f"
+  grep "^$name " $CFG_DIR/ipset_list | awk "{print \$2, \$3}" | {
+    read url type
+    [ -z "$url" -o -z "$type" ] && { echo "未找到 URL 或 类型"; exit 1; }
+    validate_input
+    download_file "$f" "$url" || { echo "下载失败或文件为空"; exit 1; }
+    ipset flush "$name"
+    sed "s/^/add $name /" "$f" | ipset restore -!
+  }
 }
 EOF
 
@@ -62,13 +62,13 @@ cat > /etc/init.d/ipset_load << "EOF"
 
 START=99
 start() {
-    . /etc/config/ipset_configs/vars.sh
-    while IFS=" " read -r name url type; do
-        family="inet$( [ "$type" -eq 6 ] && echo "6")"
-        f=$CFG_DIR/${name}.txt
-        [ -f "$f" ] && ipset create "$name" hash:net family "$family" -exist && \
-        ipset flush "$name" && sed "s/^/add $name /" "$f" | ipset restore -!
-    done < $CFG_DIR/ipset_list
+  . /etc/config/ipset_configs/vars.sh
+  while IFS=" " read -r name url type; do
+    family="inet$( [ "$type" -eq 6 ] && echo "6")"
+    f=$CFG_DIR/${name}.txt
+    [ -f "$f" ] && ipset create "$name" hash:net family "$family" -exist && \
+    ipset flush "$name" && sed "s/^/add $name /" "$f" | ipset restore -!
+  done < $CFG_DIR/ipset_list
 }
 EOF
 
@@ -84,43 +84,43 @@ sh -c 'mkdir -p /etc/nftables_configs && cat << "EOF" > /etc/nftables_configs/va
 CFG_DIR="/etc/nftables_configs"
 
 validate_input(){
-case "$name" in *[!a-zA-Z0-9_-]*|"") echo "无效的名称"; exit 1;; esac
-[ -n "$url" ] && case "$url" in http://*|https://*) ;; *) echo "无效的URL"; exit 1;; esac
-[ "$type" = 4 -o "$type" = 6 ] || { echo "无效的类型"; exit 1; }
+  case "$name" in *[!a-zA-Z0-9_-]*|"") echo "无效的名称"; exit 1;; esac
+  [ -n "$url" ] && case "$url" in http://*|https://*) ;; *) echo "无效的URL"; exit 1;; esac
+  [ "$type" = 4 -o "$type" = 6 ] || { echo "无效的类型"; exit 1; }
 }
 
 download_file(){
-tgt=$1; src=$2; retries=3; count=0
-while [ $count -lt $retries ]; do
-wget -qO "$tgt" "$src" && [ -s "$tgt" ] && return 0
-count=$((count+1)); sleep 1
-done; return 1
+  tgt=$1; src=$2; retries=3; count=0
+  while [ $count -lt $retries ]; do
+    wget -qO "$tgt" "$src" && [ -s "$tgt" ] && return 0
+    count=$((count+1)); sleep 1
+  done; return 1
 }
 
 add_nftables_set(){
-validate_input
-family="ip$([ "$type" -eq 6 ] && echo 6)"
-f=$CFG_DIR/${name}.txt; rm -f "$f"
-download_file "$f" "$url" || { echo "下载失败或文件为空"; exit 1; }
-nft add table $family filter 2>/dev/null || true
-nft delete set $family filter $name 2>/dev/null || true
-nft add set $family filter $name { type ${family}_addr\; flags interval\; auto-merge\; }
-nft flush set $family filter $name
-while read -r line; do [ -n "$line" ] && nft add element $family filter $name { $line }; done < "$f"
-grep -v "^$name " $CFG_DIR/nftables_list > /tmp/nftables_list
-mv /tmp/nftables_list $CFG_DIR/nftables_list
-echo "$name $url $type" >> $CFG_DIR/nftables_list
+  validate_input
+  family="ip$([ "$type" -eq 6 ] && echo 6)"
+  f=$CFG_DIR/${name}.txt; rm -f "$f"
+  download_file "$f" "$url" || { echo "下载失败或文件为空"; exit 1; }
+  nft add table $family filter 2>/dev/null || true
+  nft delete set $family filter $name 2>/dev/null || true
+  nft add set $family filter $name { type ${family}_addr\; flags interval\; auto-merge\; }
+  nft flush set $family filter $name
+  while read -r line; do [ -n "$line" ] && nft add element $family filter $name { $line }; done < "$f"
+  grep -v "^$name " $CFG_DIR/nftables_list > /tmp/nftables_list
+  mv /tmp/nftables_list $CFG_DIR/nftables_list
+  echo "$name $url $type" >> $CFG_DIR/nftables_list
 }
 
 clear_and_update_nftables_set(){
-f=$CFG_DIR/${name}.txt; : > "$f"
-read url type < <(grep "^$name " $CFG_DIR/nftables_list | awk "{print \$2, \$3}")
-[ -z "$url" -o -z "$type" ] && { echo "未找到 URL 或 类型"; exit 1; }
-validate_input
-download_file "$f" "$url" || { echo "下载失败或文件为空"; exit 1; }
-family="ip$([ "$type" -eq 6 ] && echo 6)"
-nft flush set $family filter $name
-while read -r line; do [ -n "$line" ] && nft add element $family filter $name { $line }; done < "$f"
+  f=$CFG_DIR/${name}.txt; : > "$f"
+  read url type < <(grep "^$name " $CFG_DIR/nftables_list | awk "{print \$2, \$3}")
+  [ -z "$url" -o -z "$type" ] && { echo "未找到 URL 或 类型"; exit 1; }
+  validate_input
+  download_file "$f" "$url" || { echo "下载失败或文件为空"; exit 1; }
+  family="ip$([ "$type" -eq 6 ] && echo 6)"
+  nft flush set $family filter $name
+  while read -r line; do [ -n "$line" ] && nft add element $family filter $name { $line }; done < "$f"
 }
 EOF
 
@@ -130,16 +130,16 @@ cat << "EOF" > /etc/init.d/nftables_load
 #!/bin/sh /etc/rc.common
 START=99
 start(){
-. /etc/nftables_configs/vars.sh
-while IFS=" " read -r name url type; do
-family="ip$([ "$type" -eq 6 ] && echo 6)"
-f=$CFG_DIR/${name}.txt
-[ -f "$f" ] || continue
-nft add table $family filter 2>/dev/null
-nft add set $family filter $name { type ${family}_addr\; flags interval\; auto-merge\; } 2>/dev/null
-nft flush set $family filter $name
-while read -r line; do [ -n "$line" ] && nft add element $family filter $name { $line } 2>/dev/null; done < "$f"
-done < $CFG_DIR/nftables_list
+  . /etc/nftables_configs/vars.sh
+  while IFS=" " read -r name url type; do
+    family="ip$([ "$type" -eq 6 ] && echo 6)"
+    f=$CFG_DIR/${name}.txt
+    [ -f "$f" ] || continue
+    nft add table $family filter 2>/dev/null
+    nft add set $family filter $name { type ${family}_addr\; flags interval\; auto-merge\; } 2>/dev/null
+    nft flush set $family filter $name
+    while read -r line; do [ -n "$line" ] && nft add element $family filter $name { $line } 2>/dev/null; done < "$f"
+  done < $CFG_DIR/nftables_list
 }
 EOF
 
