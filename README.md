@@ -79,7 +79,72 @@ chmod +x /etc/init.d/ipset_load
 
 nftables
 ```
-mkdir -p /etc/nftables_configs && echo -e '#!/bin/sh\n\nCFG_DIR="/etc/nftables_configs"\n\nvalidate_input() {\n    if [[ ! "$name" =~ ^[a-zA-Z0-9_-]+$ ]]; then\n        echo "无效的名称"; exit 1\n    fi\n    if [[ "$url" != "" && ! "$url" =~ ^https?:// ]]; then\n        echo "无效的URL"; exit 1\n    fi\n    if [ "$type" != "4" ] && [ "$type" != "6" ]; then\n        echo "无效的类型"; exit 1\n    fi\n}\n\ndownload_file() {\n    local retries=3\n    local count=0\n    while [ $count -lt $retries ]; do\n        wget -qO $1 $2\n        if [ -s $1 ]; then\n            return 0\n        fi\n        count=$((count + 1))\n        sleep 1\n    done\n    return 1\n}\n\nadd_nftables_set() {\n    validate_input\n    family="ip$( [ "$type" -eq 6 ] && echo "6")"\n    f=$CFG_DIR/${name}.txt\n    rm -f $f\n    if ! download_file $f $url; then echo "下载失败或文件为空"; exit 1; fi\n    nft add table $family filter 2>/dev/null || true\n    nft delete set $family filter $name 2>/dev/null || true\n    nft add set $family filter $name { type ${family}_addr\\; flags interval\\; auto-merge\\; }\n    nft flush set $family filter $name\n    while read -r line; do\n        [ -n "$line" ] && nft add element $family filter $name { $line }\n    done < $f\n    grep -v "^$name " $CFG_DIR/nftables_list > /tmp/nftables_list\n    mv /tmp/nftables_list $CFG_DIR/nftables_list\n    echo "$name $url $type" >> $CFG_DIR/nftables_list\n}\n\nclear_and_update_nftables_set() {\n    f=$CFG_DIR/${name}.txt\n    > $f\n    read url type < <(grep "^$name " $CFG_DIR/nftables_list | awk "{print \\$2, \\$3}")\n    if [ -z "$url" ] || [ -z "$type" ]; then\n        echo "未找到 URL 或 类型"\n        exit 1\n    fi\n    validate_input\n    if ! download_file $f $url; then\n        echo "下载失败或文件为空"\n        exit 1\n    fi\n    family="ip$( [ "$type" -eq 6 ] && echo "6")"\n    nft flush set $family filter $name\n    while read -r line; do\n        [ -n "$line" ] && nft add element $family filter $name { $line }\n    done < $f\n}' > /etc/nftables_configs/vars.sh && > /etc/nftables_configs/nftables_list && echo -e '#!/bin/sh /etc/rc.common\n\nSTART=99\nstart() {\n    . /etc/nftables_configs/vars.sh\n    while IFS=" " read -r name url type; do\n        family="ip$( [ "$type" -eq 6 ] && echo "6")"\n        f=$CFG_DIR/${name}.txt\n        if [ -f $f ]; then\n            nft add table $family filter 2>/dev/null\n            nft add set $family filter $name { type ${family}_addr\\; flags interval\\; auto-merge\\; } 2>/dev/null\n            nft flush set $family filter $name\n            while read -r line; do\n                [ -n "$line" ] && nft add element $family filter $name { $line } 2>/dev/null\n            done < $f\n        fi\n    done < $CFG_DIR/nftables_list\n}' > /etc/init.d/nftables_load && chmod +x /etc/init.d/nftables_load && /etc/init.d/nftables_load enable
+sh -c 'mkdir -p /etc/nftables_configs && cat << "EOF" > /etc/nftables_configs/vars.sh
+#!/bin/sh
+CFG_DIR="/etc/nftables_configs"
+
+validate_input(){
+case "$name" in *[!a-zA-Z0-9_-]*|"") echo "无效的名称"; exit 1;; esac
+[ -n "$url" ] && case "$url" in http://*|https://*) ;; *) echo "无效的URL"; exit 1;; esac
+[ "$type" = 4 -o "$type" = 6 ] || { echo "无效的类型"; exit 1; }
+}
+
+download_file(){
+tgt=$1; src=$2; retries=3; count=0
+while [ $count -lt $retries ]; do
+wget -qO "$tgt" "$src" && [ -s "$tgt" ] && return 0
+count=$((count+1)); sleep 1
+done; return 1
+}
+
+add_nftables_set(){
+validate_input
+family="ip$([ "$type" -eq 6 ] && echo 6)"
+f=$CFG_DIR/${name}.txt; rm -f "$f"
+download_file "$f" "$url" || { echo "下载失败或文件为空"; exit 1; }
+nft add table $family filter 2>/dev/null || true
+nft delete set $family filter $name 2>/dev/null || true
+nft add set $family filter $name { type ${family}_addr\; flags interval\; auto-merge\; }
+nft flush set $family filter $name
+while read -r line; do [ -n "$line" ] && nft add element $family filter $name { $line }; done < "$f"
+grep -v "^$name " $CFG_DIR/nftables_list > /tmp/nftables_list
+mv /tmp/nftables_list $CFG_DIR/nftables_list
+echo "$name $url $type" >> $CFG_DIR/nftables_list
+}
+
+clear_and_update_nftables_set(){
+f=$CFG_DIR/${name}.txt; : > "$f"
+read url type < <(grep "^$name " $CFG_DIR/nftables_list | awk "{print \$2, \$3}")
+[ -z "$url" -o -z "$type" ] && { echo "未找到 URL 或 类型"; exit 1; }
+validate_input
+download_file "$f" "$url" || { echo "下载失败或文件为空"; exit 1; }
+family="ip$([ "$type" -eq 6 ] && echo 6)"
+nft flush set $family filter $name
+while read -r line; do [ -n "$line" ] && nft add element $family filter $name { $line }; done < "$f"
+}
+EOF
+
+> /etc/nftables_configs/nftables_list
+
+cat << "EOF" > /etc/init.d/nftables_load
+#!/bin/sh /etc/rc.common
+START=99
+start(){
+. /etc/nftables_configs/vars.sh
+while IFS=" " read -r name url type; do
+family="ip$([ "$type" -eq 6 ] && echo 6)"
+f=$CFG_DIR/${name}.txt
+[ -f "$f" ] || continue
+nft add table $family filter 2>/dev/null
+nft add set $family filter $name { type ${family}_addr\; flags interval\; auto-merge\; } 2>/dev/null
+nft flush set $family filter $name
+while read -r line; do [ -n "$line" ] && nft add element $family filter $name { $line } 2>/dev/null; done < "$f"
+done < $CFG_DIR/nftables_list
+}
+EOF
+
+chmod +x /etc/init.d/nftables_load
+/etc/init.d/nftables_load enable'
 ```
 
 创建 /etc/config/ipset_configs/vars.sh 目录。用于缓存IP段，会将IPset的IP段保存至对应的txt文件中。
