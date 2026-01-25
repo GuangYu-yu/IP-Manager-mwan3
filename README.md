@@ -34,9 +34,16 @@ add_ipset(){
   family="inet$([ "$type" -eq 6 ] && echo 6)"
   f=$CFG_DIR/${name}.txt; rm -f "$f"
   download_file "$f" "$url" || { echo "下载失败或文件为空"; exit 1; }
+  
+  # 使用临时集合实现原子更新
+  tmp_name="${name}_tmp"
   ipset create "$name" hash:net family "$family" -exist
-  ipset flush "$name"
-  sed "s/^/add $name /" "$f" | ipset restore -!
+  ipset create "$tmp_name" hash:net family "$family" -exist
+  ipset flush "$tmp_name"
+  sed "s/^/add $tmp_name /" "$f" | ipset restore -!
+  ipset swap "$name" "$tmp_name"
+  ipset destroy "$tmp_name"
+
   grep -v "^$name " $CFG_DIR/ipset_list > /tmp/ipset_list
   mv /tmp/ipset_list $CFG_DIR/ipset_list
   echo "$name $url $type" >> $CFG_DIR/ipset_list
@@ -49,8 +56,15 @@ clear_and_update_ipset(){
     [ -z "$url" -o -z "$type" ] && { echo "未找到 URL 或 类型"; exit 1; }
     validate_input
     download_file "$f" "$url" || { echo "下载失败或文件为空"; exit 1; }
-    ipset flush "$name"
-    sed "s/^/add $name /" "$f" | ipset restore -!
+    
+    # 使用临时集合实现原子更新
+    family="inet$([ "$type" -eq 6 ] && echo 6)"
+    tmp_name="${name}_tmp"
+    ipset create "$tmp_name" hash:net family "$family" -exist
+    ipset flush "$tmp_name"
+    sed "s/^/add $tmp_name /" "$f" | ipset restore -!
+    ipset swap "$name" "$tmp_name"
+    ipset destroy "$tmp_name"
   }
 }
 EOF
@@ -102,11 +116,22 @@ add_nftables_set(){
   family="ip$([ "$type" -eq 6 ] && echo 6)"
   f=$CFG_DIR/${name}.txt; rm -f "$f"
   download_file "$f" "$url" || { echo "下载失败或文件为空"; exit 1; }
-  nft add table $family filter 2>/dev/null || true
-  nft delete set $family filter $name 2>/dev/null || true
-  nft add set $family filter $name { type ${family}_addr\; flags interval\; auto-merge\; }
-  nft flush set $family filter $name
-  while read -r line; do [ -n "$line" ] && nft add element $family filter $name { $line }; done < "$f"
+  
+  # 准备原子更新脚本
+  nft_script="$CFG_DIR/${name}.nft"
+  {
+    echo "add table $family filter"
+    echo "add set $family filter $name { type ${family}_addr; flags interval; auto-merge; }"
+    echo "flush set $family filter $name"
+    echo -n "add element $family filter $name { "
+    tr '\n' ',' < "$f" | sed 's/,$//'
+    echo " }"
+  } > "$nft_script"
+  
+  # 原子执行
+  nft -f "$nft_script"
+  rm -f "$nft_script"
+
   grep -v "^$name " $CFG_DIR/nftables_list > /tmp/nftables_list
   mv /tmp/nftables_list $CFG_DIR/nftables_list
   echo "$name $url $type" >> $CFG_DIR/nftables_list
@@ -119,8 +144,19 @@ clear_and_update_nftables_set(){
   validate_input
   download_file "$f" "$url" || { echo "下载失败或文件为空"; exit 1; }
   family="ip$([ "$type" -eq 6 ] && echo 6)"
-  nft flush set $family filter $name
-  while read -r line; do [ -n "$line" ] && nft add element $family filter $name { $line }; done < "$f"
+  
+  # 准备原子更新脚本
+  nft_script="$CFG_DIR/${name}.nft"
+  {
+    echo "flush set $family filter $name"
+    echo -n "add element $family filter $name { "
+    tr '\n' ',' < "$f" | sed 's/,$//'
+    echo " }"
+  } > "$nft_script"
+  
+  # 原子执行
+  nft -f "$nft_script"
+  rm -f "$nft_script"
 }
 EOF
 
@@ -135,10 +171,20 @@ start(){
     family="ip$([ "$type" -eq 6 ] && echo 6)"
     f=$CFG_DIR/${name}.txt
     [ -f "$f" ] || continue
-    nft add table $family filter 2>/dev/null
-    nft add set $family filter $name { type ${family}_addr\; flags interval\; auto-merge\; } 2>/dev/null
-    nft flush set $family filter $name
-    while read -r line; do [ -n "$line" ] && nft add element $family filter $name { $line } 2>/dev/null; done < "$f"
+    
+    # 准备原子加载脚本
+    nft_script="$CFG_DIR/${name}_load.nft"
+    {
+      echo "add table $family filter"
+      echo "add set $family filter $name { type ${family}_addr; flags interval; auto-merge; }"
+      echo "flush set $family filter $name"
+      echo -n "add element $family filter $name { "
+      tr '\n' ',' < "$f" | sed 's/,$//'
+      echo " }"
+    } > "$nft_script"
+    
+    nft -f "$nft_script" 2>/dev/null
+    rm -f "$nft_script"
   done < $CFG_DIR/nftables_list
 }
 EOF
