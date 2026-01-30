@@ -29,6 +29,7 @@ validate_input() {
     [ "$type" = 4 -o "$type" = 6 ] || {
         echo "无效的类型"
         exit 1
+        ;;
     }
 }
 
@@ -47,81 +48,104 @@ download_file() {
     return 1
 }
 
+filter_file() {
+    f=$1
+    # 删除空行和包含非法字符的行
+    sed -i -e '/^[[:space:]]*$/d' -e '/[^0-9a-fA-F:\.\/]/d' "$f"
+}
+
+update_ipset_common() {
+    name=$1
+    f=$2
+    type=$3
+    
+    family="inet$([ "$type" -eq 6 ] && echo 6)"
+    tmp_name="${name}_tmp"
+    
+    # 确保清理可能存在的残留临时集合
+    ipset destroy "$tmp_name" >/dev/null 2>&1
+    
+    ipset create "$name" hash:net family "$family" -exist
+    if ! ipset create "$tmp_name" hash:net family "$family" -exist; then
+         echo "创建临时集合失败"
+         return 1
+    fi
+    
+    ipset flush "$tmp_name"
+    
+    if ! sed "s/^/add $tmp_name /" "$f" | ipset restore -!; then
+        echo "恢复 ipset 失败，正在清理..."
+        ipset destroy "$tmp_name"
+        return 1
+    fi
+    
+    ipset swap "$name" "$tmp_name"
+    ipset destroy "$tmp_name"
+    
+    # 使用 ipset save 进行持久化
+    ipset save > /etc/ipset.conf
+}
+
 add_ipset() {
     validate_input
-    family="inet$([ "$type" -eq 6 ] && echo 6)"
     f=$CFG_DIR/${name}.txt
     rm -f "$f"
 
-    download_file "$f" "$url" || {
+    if ! download_file "$f" "$url"; then
         echo "下载失败或文件为空"
+        rm -f "$f"
         exit 1
-    }
+    fi
+    
+    filter_file "$f"
+    if [ ! -s "$f" ]; then
+        echo "文件内容无效（为空或包含非法字符）"
+        rm -f "$f"
+        exit 1
+    fi
 
-    tmp_name="${name}_tmp"
-    ipset create "$name" hash:net family "$family" -exist
-    ipset create "$tmp_name" hash:net family "$family" -exist
-    ipset flush "$tmp_name"
-    sed "s/^/add $tmp_name /" "$f" | ipset restore -!
-    ipset swap "$name" "$tmp_name"
-    ipset destroy "$tmp_name"
-
-    grep -v "^$name " $CFG_DIR/ipset_list > /tmp/ipset_list
-    mv /tmp/ipset_list $CFG_DIR/ipset_list
-    echo "$name $url $type" >> $CFG_DIR/ipset_list
+    if update_ipset_common "$name" "$f" "$type"; then
+        grep -v "^$name " $CFG_DIR/ipset_list > /tmp/ipset_list
+        mv /tmp/ipset_list $CFG_DIR/ipset_list
+        echo "$name $url $type" >> $CFG_DIR/ipset_list
+    else
+        exit 1
+    fi
 }
 
 clear_and_update_ipset() {
     f=$CFG_DIR/${name}.txt
     : > "$f"
 
-    grep "^$name " $CFG_DIR/ipset_list | awk '{print $2, $3}' | {
-        read url type
-        [ -z "$url" -o -z "$type" ] && {
-            echo "未找到 URL 或 类型"
-            exit 1
-        }
-        validate_input
-        download_file "$f" "$url" || {
-            echo "下载失败或文件为空"
-            exit 1
-        }
-        
-        family="inet$([ "$type" -eq 6 ] && echo 6)"
-        tmp_name="${name}_tmp"
-        ipset create "$tmp_name" hash:net family "$family" -exist
-        ipset flush "$tmp_name"
-        sed "s/^/add $tmp_name /" "$f" | ipset restore -!
-        ipset swap "$name" "$tmp_name"
-        ipset destroy "$tmp_name"
-    }
+    info=$(grep "^$name " $CFG_DIR/ipset_list)
+    if [ -z "$info" ]; then
+        echo "未找到配置: $name"
+        exit 1
+    fi
+    
+    url=$(echo "$info" | awk '{print $2}')
+    type=$(echo "$info" | awk '{print $3}')
+    
+    if ! download_file "$f" "$url"; then
+        echo "下载失败或文件为空"
+        rm -f "$f"
+        exit 1
+    fi
+    
+    filter_file "$f"
+    if [ ! -s "$f" ]; then
+        echo "文件内容无效（为空或包含非法字符）"
+        rm -f "$f"
+        exit 1
+    fi
+    
+    update_ipset_common "$name" "$f" "$type"
 }
 EOF
 
 # 清空 ipset 列表文件
 > /etc/config/ipset_configs/ipset_list
 
-# 写入 init 启动脚本
-cat << 'EOF' > /etc/init.d/ipset_load
-#!/bin/sh /etc/rc.common
-START=99
-
-start() {
-    . /etc/config/ipset_configs/vars.sh
-
-    while IFS=" " read -r name url type; do
-        family="inet$([ "$type" -eq 6 ] && echo 6)"
-        f=$CFG_DIR/${name}.txt
-        [ -f "$f" ] || continue
-        ipset create "$name" hash:net family "$family" -exist
-        ipset flush "$name"
-        sed "s/^/add $name /" "$f" | ipset restore -!
-    done < $CFG_DIR/ipset_list
-}
-EOF
-
-# 赋予执行权限
-chmod +x /etc/init.d/ipset_load
-
-# 设置开机启动
-/etc/init.d/ipset_load enable
+# 启用并启动系统 ipset 服务
+/etc/init.d/ipset enable
+/etc/init.d/ipset start
