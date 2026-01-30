@@ -9,188 +9,156 @@
 ipset
 ```
 sh -c '
+# 创建配置目录
 mkdir -p /etc/config/ipset_configs
 
-cat > /etc/config/ipset_configs/vars.sh << "EOF"
+# 写入 vars.sh 脚本
+cat << "EOF" > /etc/config/ipset_configs/vars.sh
 #!/bin/sh
+
 CFG_DIR="/etc/config/ipset_configs"
 
-validate_input(){
-  case "$name" in *[!a-zA-Z0-9_-]*|"") echo "无效的名称"; exit 1;; esac
-  [ -n "$url" ] && case "$url" in http://*|https://*) ;; *) echo "无效的URL"; exit 1;; esac
-  [ "$type" = 4 -o "$type" = 6 ] || { echo "无效的类型"; exit 1; }
+validate_input() {
+    case "$name" in
+        *[!a-zA-Z0-9_-]*|"")
+            echo "无效的名称"
+            exit 1
+            ;;
+    esac
+
+    [ -n "$url" ] && case "$url" in
+        http://*|https://*)
+            ;;
+        *)
+            echo "无效的URL"
+            exit 1
+            ;;
+    esac
+
+    [ "$type" = 4 -o "$type" = 6 ] || {
+        echo "无效的类型"
+        exit 1
+        ;;
+    }
 }
 
-download_file(){
-  tgt=$1; src=$2; retries=3; count=0
-  while [ $count -lt $retries ]; do
-    wget -qO "$tgt" "$src" && [ -s "$tgt" ] && return 0
-    count=$((count+1)); sleep 1
-  done; return 1
+download_file() {
+    tgt=$1
+    src=$2
+    retries=3
+    count=0
+
+    while [ $count -lt $retries ]; do
+        wget -qO "$tgt" "$src" && [ -s "$tgt" ] && return 0
+        count=$((count + 1))
+        sleep 1
+    done
+
+    return 1
 }
 
-add_ipset(){
-  validate_input
-  family="inet$([ "$type" -eq 6 ] && echo 6)"
-  f=$CFG_DIR/${name}.txt; rm -f "$f"
-  download_file "$f" "$url" || { echo "下载失败或文件为空"; exit 1; }
-  
-  # 使用临时集合实现原子更新
-  tmp_name="${name}_tmp"
-  ipset create "$name" hash:net family "$family" -exist
-  ipset create "$tmp_name" hash:net family "$family" -exist
-  ipset flush "$tmp_name"
-  sed "s/^/add $tmp_name /" "$f" | ipset restore -!
-  ipset swap "$name" "$tmp_name"
-  ipset destroy "$tmp_name"
-
-  grep -v "^$name " $CFG_DIR/ipset_list > /tmp/ipset_list
-  mv /tmp/ipset_list $CFG_DIR/ipset_list
-  echo "$name $url $type" >> $CFG_DIR/ipset_list
+filter_file() {
+    f=$1
+    # 删除空行和包含非法字符的行
+    sed -i -e "/^[[:space:]]*$/d" -e "/[^0-9a-fA-F:\.\/]/d" "$f"
 }
 
-clear_and_update_ipset(){
-  f=$CFG_DIR/${name}.txt; : > "$f"
-  grep "^$name " $CFG_DIR/ipset_list | awk "{print \$2, \$3}" | {
-    read url type
-    [ -z "$url" -o -z "$type" ] && { echo "未找到 URL 或 类型"; exit 1; }
-    validate_input
-    download_file "$f" "$url" || { echo "下载失败或文件为空"; exit 1; }
+update_ipset_common() {
+    name=$1
+    f=$2
+    type=$3
     
-    # 使用临时集合实现原子更新
     family="inet$([ "$type" -eq 6 ] && echo 6)"
     tmp_name="${name}_tmp"
-    ipset create "$tmp_name" hash:net family "$family" -exist
+    
+    # 确保清理可能存在的残留临时集合
+    ipset destroy "$tmp_name" >/dev/null 2>&1
+    
+    ipset create "$name" hash:net family "$family" -exist
+    if ! ipset create "$tmp_name" hash:net family "$family" -exist; then
+         echo "创建临时集合失败"
+         return 1
+    fi
+    
     ipset flush "$tmp_name"
-    sed "s/^/add $tmp_name /" "$f" | ipset restore -!
+    
+    if ! sed "s/^/add $tmp_name /" "$f" | ipset restore -!; then
+        echo "恢复 ipset 失败，正在清理..."
+        ipset destroy "$tmp_name"
+        return 1
+    fi
+    
     ipset swap "$name" "$tmp_name"
     ipset destroy "$tmp_name"
-  }
+    
+    # 使用 ipset save 进行持久化
+    ipset save > /etc/ipset.conf
+}
+
+add_ipset() {
+    validate_input
+    f=$CFG_DIR/${name}.txt
+    rm -f "$f"
+
+    if ! download_file "$f" "$url"; then
+        echo "下载失败或文件为空"
+        rm -f "$f"
+        exit 1
+    fi
+    
+    filter_file "$f"
+    if [ ! -s "$f" ]; then
+        echo "文件内容无效（为空或包含非法字符）"
+        rm -f "$f"
+        exit 1
+    fi
+
+    if update_ipset_common "$name" "$f" "$type"; then
+        grep -v "^$name " $CFG_DIR/ipset_list > /tmp/ipset_list
+        mv /tmp/ipset_list $CFG_DIR/ipset_list
+        echo "$name $url $type" >> $CFG_DIR/ipset_list
+    else
+        exit 1
+    fi
+}
+
+clear_and_update_ipset() {
+    f=$CFG_DIR/${name}.txt
+    : > "$f"
+
+    info=$(grep "^$name " $CFG_DIR/ipset_list)
+    if [ -z "$info" ]; then
+        echo "未找到配置: $name"
+        exit 1
+    fi
+    
+    url=$(echo "$info" | awk "{print \$2}")
+    type=$(echo "$info" | awk "{print \$3}")
+    
+    if ! download_file "$f" "$url"; then
+        echo "下载失败或文件为空"
+        rm -f "$f"
+        exit 1
+    fi
+    
+    filter_file "$f"
+    if [ ! -s "$f" ]; then
+        echo "文件内容无效（为空或包含非法字符）"
+        rm -f "$f"
+        exit 1
+    fi
+    
+    update_ipset_common "$name" "$f" "$type"
 }
 EOF
 
+# 清空 ipset 列表文件
 > /etc/config/ipset_configs/ipset_list
 
-cat > /etc/init.d/ipset_load << "EOF"
-#!/bin/sh /etc/rc.common
-
-START=99
-start() {
-  . /etc/config/ipset_configs/vars.sh
-  while IFS=" " read -r name url type; do
-    family="inet$( [ "$type" -eq 6 ] && echo "6")"
-    f=$CFG_DIR/${name}.txt
-    [ -f "$f" ] && ipset create "$name" hash:net family "$family" -exist && \
-    ipset flush "$name" && sed "s/^/add $name /" "$f" | ipset restore -!
-  done < $CFG_DIR/ipset_list
-}
-EOF
-
-chmod +x /etc/init.d/ipset_load
-/etc/init.d/ipset_load enable
+# 启用并启动系统 ipset 服务
+/etc/init.d/ipset enable
+/etc/init.d/ipset start
 '
-```
-
-nftables
-```
-sh -c 'mkdir -p /etc/nftables_configs && cat << "EOF" > /etc/nftables_configs/vars.sh
-#!/bin/sh
-CFG_DIR="/etc/nftables_configs"
-
-validate_input(){
-  case "$name" in *[!a-zA-Z0-9_-]*|"") echo "无效的名称"; exit 1;; esac
-  [ -n "$url" ] && case "$url" in http://*|https://*) ;; *) echo "无效的URL"; exit 1;; esac
-  [ "$type" = 4 -o "$type" = 6 ] || { echo "无效的类型"; exit 1; }
-}
-
-download_file(){
-  tgt=$1; src=$2; retries=3; count=0
-  while [ $count -lt $retries ]; do
-    wget -qO "$tgt" "$src" && [ -s "$tgt" ] && return 0
-    count=$((count+1)); sleep 1
-  done; return 1
-}
-
-add_nftables_set(){
-  validate_input
-  family="ip$([ "$type" -eq 6 ] && echo 6)"
-  f=$CFG_DIR/${name}.txt; rm -f "$f"
-  download_file "$f" "$url" || { echo "下载失败或文件为空"; exit 1; }
-  
-  # 准备原子更新脚本
-  nft_script="$CFG_DIR/${name}.nft"
-  {
-    echo "add table $family filter"
-    echo "add set $family filter $name { type ${family}_addr; flags interval; auto-merge; }"
-    echo "flush set $family filter $name"
-    echo -n "add element $family filter $name { "
-    tr '\n' ',' < "$f" | sed 's/,$//'
-    echo " }"
-  } > "$nft_script"
-  
-  # 原子执行
-  nft -f "$nft_script"
-  rm -f "$nft_script"
-
-  grep -v "^$name " $CFG_DIR/nftables_list > /tmp/nftables_list
-  mv /tmp/nftables_list $CFG_DIR/nftables_list
-  echo "$name $url $type" >> $CFG_DIR/nftables_list
-}
-
-clear_and_update_nftables_set(){
-  f=$CFG_DIR/${name}.txt; : > "$f"
-  read url type < <(grep "^$name " $CFG_DIR/nftables_list | awk "{print \$2, \$3}")
-  [ -z "$url" -o -z "$type" ] && { echo "未找到 URL 或 类型"; exit 1; }
-  validate_input
-  download_file "$f" "$url" || { echo "下载失败或文件为空"; exit 1; }
-  family="ip$([ "$type" -eq 6 ] && echo 6)"
-  
-  # 准备原子更新脚本
-  nft_script="$CFG_DIR/${name}.nft"
-  {
-    echo "flush set $family filter $name"
-    echo -n "add element $family filter $name { "
-    tr '\n' ',' < "$f" | sed 's/,$//'
-    echo " }"
-  } > "$nft_script"
-  
-  # 原子执行
-  nft -f "$nft_script"
-  rm -f "$nft_script"
-}
-EOF
-
-> /etc/nftables_configs/nftables_list
-
-cat << "EOF" > /etc/init.d/nftables_load
-#!/bin/sh /etc/rc.common
-START=99
-start(){
-  . /etc/nftables_configs/vars.sh
-  while IFS=" " read -r name url type; do
-    family="ip$([ "$type" -eq 6 ] && echo 6)"
-    f=$CFG_DIR/${name}.txt
-    [ -f "$f" ] || continue
-    
-    # 准备原子加载脚本
-    nft_script="$CFG_DIR/${name}_load.nft"
-    {
-      echo "add table $family filter"
-      echo "add set $family filter $name { type ${family}_addr; flags interval; auto-merge; }"
-      echo "flush set $family filter $name"
-      echo -n "add element $family filter $name { "
-      tr '\n' ',' < "$f" | sed 's/,$//'
-      echo " }"
-    } > "$nft_script"
-    
-    nft -f "$nft_script" 2>/dev/null
-    rm -f "$nft_script"
-  done < $CFG_DIR/nftables_list
-}
-EOF
-
-chmod +x /etc/init.d/nftables_load
-/etc/init.d/nftables_load enable'
 ```
 
 创建 /etc/config/ipset_configs/vars.sh 目录。用于缓存IP段，会将IPset的IP段保存至对应的txt文件中。
