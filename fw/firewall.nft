@@ -63,19 +63,19 @@ table inet portguard {
 
 		meta nfproto ipv4 meta l4proto { tcp, udp } ct state new \
 			ip saddr . th dport @probe_v4 \
-			add @allow_v4 { ip saddr . th dport } reject
+			add @allow_v4 { ip saddr . th dport } drop
 		meta nfproto ipv6 meta l4proto { tcp, udp } ct state new \
 			ip6 saddr . th dport @probe_v6 \
-			add @allow_v6 { ip6 saddr . th dport } reject
+			add @allow_v6 { ip6 saddr . th dport } drop
 
 		meta nfproto ipv4 meta l4proto { tcp, udp } ct state new ip saddr @rate_v4 drop
 		meta nfproto ipv6 meta l4proto { tcp, udp } ct state new ip6 saddr @rate_v6 drop
 		meta nfproto ipv4 meta l4proto { tcp, udp } ct state new \
 			add @rate_v4 { ip saddr timeout 20ms } \
-			add @probe_v4 { ip saddr . th dport } reject
+			add @probe_v4 { ip saddr . th dport } drop
 		meta nfproto ipv6 meta l4proto { tcp, udp } ct state new \
 			add @rate_v6 { ip6 saddr timeout 20ms } \
-			add @probe_v6 { ip6 saddr . th dport } reject
+			add @probe_v6 { ip6 saddr . th dport } drop
 	}
 
 	# ── 路由器本机入站 ──
