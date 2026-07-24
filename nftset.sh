@@ -6,7 +6,7 @@ CFG_DIR="/etc/config/nftset_configs"
 mkdir -p "$CFG_DIR"
 
 # 写入 nftset 管理脚本
-cat << 'SHEOF' > "$CFG_DIR/mwan3-nftset.sh"
+cat << 'SHEOF' > "$CFG_DIR/vars.sh"
 #!/bin/sh
 
 CFG_DIR="__CFG_DIR__"
@@ -31,13 +31,9 @@ filter_file() {
 	sed -i -e '/^[[:space:]]*$/d' -e '/[^0-9a-fA-F:.\/]/d' "$1"
 }
 
-nft_family() {
-	[ "$1" -eq 6 ] && echo "ipv6_addr" || echo "ipv4_addr"
-}
-
 update_nftset() {
 	name=$1; f=$2; type=$3
-	fam=$(nft_family "$type")
+	[ "$type" -eq 6 ] && fam="ipv6_addr" || fam="ipv4_addr"
 	tmpfile="/tmp/nftset_${name}.nft"
 
 	nft add set inet "$NFT_TABLE" "$name" \
@@ -47,7 +43,7 @@ update_nftset() {
 		echo "flush set inet $NFT_TABLE $name"
 		if [ -s "$f" ]; then
 			echo "add element inet $NFT_TABLE $name {"
-			awk '{printf "%s,\n", $0}' "$f"
+			sed 's/$/,/' "$f"
 			echo "}"
 		fi
 	} > "$tmpfile"
@@ -74,8 +70,7 @@ add_nftset() {
 	[ -s "$f" ] || { echo "文件内容无效"; rm -f "$f"; exit 1; }
 
 	if update_nftset "$name" "$f" "$type"; then
-		grep -v "^$name " "$CFG_DIR/nftset_list" > /tmp/nftset_list 2>/dev/null || true
-		mv /tmp/nftset_list "$CFG_DIR/nftset_list" 2>/dev/null || true
+		sed -i "/^$name /d" "$CFG_DIR/nftset_list" 2>/dev/null || true
 		echo "$name $url $type" >> "$CFG_DIR/nftset_list"
 	else
 		exit 1
@@ -85,10 +80,9 @@ add_nftset() {
 clear_and_update_nftset() {
 	mkdir -p "$CFG_DIR"
 	f=$CFG_DIR/${name}.txt; : > "$f"
-	info=$(grep "^$name " "$CFG_DIR/nftset_list")
-	[ -z "$info" ] && { echo "未找到配置: $name"; exit 1; }
-	url=$(echo "$info" | awk '{print $2}')
-	type=$(echo "$info" | awk '{print $3}')
+	set -- $(grep "^$name " "$CFG_DIR/nftset_list")
+	[ -z "$1" ] && { echo "未找到配置: $name"; exit 1; }
+	url=$2; type=$3
 
 	if ! download_file "$f" "$url"; then
 		echo "下载失败或文件为空"; rm -f "$f"; exit 1
@@ -100,13 +94,43 @@ clear_and_update_nftset() {
 SHEOF
 
 # 替换占位符
-sed -i "s|__CFG_DIR__|$CFG_DIR|g" "$CFG_DIR/mwan3-nftset.sh"
+sed -i "s|__CFG_DIR__|$CFG_DIR|g" "$CFG_DIR/vars.sh"
 
-# 清空 nftset 列表文件
-> "$CFG_DIR/nftset_list"
+# 初始化 nftset 列表文件（仅首次创建）
+[ -f "$CFG_DIR/nftset_list" ] || > "$CFG_DIR/nftset_list"
+
+# 写入开机自启脚本
+cat << 'SHEOF' > /etc/init.d/mwan3-nftset
+#!/bin/sh /etc/rc.common
+
+START=19
+USE_PROCD=1
+
+boot() {
+	include /lib/functions
+	CFG_DIR="__CFG_DIR__"
+
+	[ -f "$CFG_DIR/nftset_list" ] || exit 0
+	# 源入管理脚本获取 update_nftset
+	. "$CFG_DIR/vars.sh"
+
+	while IFS= read -r line; do
+		[ -z "$line" ] && continue
+		set -- $line
+		name=$1; type=$3
+		f="$CFG_DIR/${name}.txt"
+		[ -s "$f" ] || continue
+		update_nftset "$name" "$f" "$type" 2>/dev/null || true
+	done < "$CFG_DIR/nftset_list"
+}
+SHEOF
+
+sed -i "s|__CFG_DIR__|$CFG_DIR|g" /etc/init.d/mwan3-nftset
+chmod +x /etc/init.d/mwan3-nftset
+/etc/init.d/mwan3-nftset enable
 
 echo "mwan3-nftset 管理脚本已安装到 $CFG_DIR/"
 echo ""
 echo "用法:"
-echo "  name=\"名称\"; url=\"URL\"; type=\"4|6\"; . $CFG_DIR/mwan3-nftset.sh; add_nftset"
-echo "  name=\"名称\"; . $CFG_DIR/mwan3-nftset.sh; clear_and_update_nftset"
+echo "  name=\"名称\"; url=\"URL\"; type=\"4|6\"; . $CFG_DIR/vars.sh; add_nftset"
+echo "  name=\"名称\"; . $CFG_DIR/vars.sh; clear_and_update_nftset"

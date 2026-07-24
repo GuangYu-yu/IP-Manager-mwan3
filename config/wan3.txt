@@ -214,4 +214,3 @@ config rule 'ALL'
 	option proto 'all'
 	option sticky '0'
 	option use_policy 'balanced'
-
