@@ -13,15 +13,15 @@ fw4 reload
 
 查看当前被挡住的扫描器（仍在前 10 秒窗口内）
 ```
-nft list set inet portguard probe_v4 | sed -n '/elements = {/,/}/p' | sed '1s/.*= {//; $s/}//; s/^[[:space:]]*//; /^$/d'
+nft list set inet portguard probe_v4 | sed -n '/elements = {/,/}/p' | sed '1s/.*= {//; s/^[[:space:]]*//; /^$/d' | tr -d '}' | sed 's/,$//'
 ```
 
 查看已敲门通过的 IP（白名单）
 ```
-nft list set inet portguard allow_v4 | sed -n '/elements = {/,/}/p' | sed '1s/.*= {//; $s/}//; s/^[[:space:]]*//; /^$/d'
+nft list set inet portguard allow_v4 | sed -n '/elements = {/,/}/p' | sed '1s/.*= {//; s/^[[:space:]]*//; /^$/d' | tr -d '}' | sed 's/,$//'
 ```
 
 查看已封禁的 IP
 ```
-nft list set inet portguard ban_v4 | sed -n '/elements = {/,/}/p' | sed '1s/.*= {//; $s/}//; s/^[[:space:]]*//; /^$/d'
+nft list set inet portguard ban_v4 | sed -n '/elements = {/,/}/p' | sed '1s/.*= {//; s/^[[:space:]]*//; /^$/d' | tr -d '}' | sed 's/,$//'
 ```
