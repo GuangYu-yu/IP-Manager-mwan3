@@ -95,3 +95,16 @@ https://cdn.jsdelivr.net/gh/GuangYu-yu/chinaisp-cidr/China_Unicom_v4.txt
 ```
 https://cdn.jsdelivr.net/gh/GuangYu-yu/chinaisp-cidr/China_Telecom_v4.txt
 ```
+
+# 计划任务
+
+```
+0 15 * * * name="cmcc6"; . /etc/config/nftset_configs/mwan3-nftset.sh; clear_and_update_nftset
+0 16 * * * name="cnc6"; . /etc/config/nftset_configs/mwan3-nftset.sh; clear_and_update_nftset
+0 17 * * * name="ct6"; . /etc/config/nftset_configs/mwan3-nftset.sh; clear_and_update_nftset
+0 18 * * * name="cmcc4"; . /etc/config/nftset_configs/mwan3-nftset.sh; clear_and_update_nftset
+0 19 * * * name="cnc4"; . /etc/config/nftset_configs/mwan3-nftset.sh; clear_and_update_nftset
+0 20 * * * name="ct4"; . /etc/config/nftset_configs/mwan3-nftset.sh; clear_and_update_nftset
+0 21 * * * name="cf4"; . /etc/config/nftset_configs/mwan3-nftset.sh; clear_and_update_nftset
+0 22 * * * name="cf6"; . /etc/config/nftset_configs/mwan3-nftset.sh; clear_and_update_nftset
+```
