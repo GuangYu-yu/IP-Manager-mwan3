@@ -51,49 +51,49 @@ name="NAME"; . /etc/config/nftset_configs/vars.sh; clear_and_update_nftset
 ## cn6
 
 ```
-https://raw.githubusercontent.com/mayaxcn/china-ip-list/master/chnroute_v6.txt
+https://china-operator-ip.yfgao.com/china6.txt
 ```
 
 ## cn4
 
 ```
-https://raw.githubusercontent.com/mayaxcn/china-ip-list/master/chnroute.txt
+https://china-operator-ip.yfgao.com/china.txt
 ```
 
 ## cmcc6
 
 ```
-https://cdn.jsdelivr.net/gh/GuangYu-yu/chinaisp-cidr/China_Mobile_v6.txt
+https://china-operator-ip.yfgao.com/cmcc6.txt
 ```
 
 ## cnc6
 
 ```
-https://cdn.jsdelivr.net/gh/GuangYu-yu/chinaisp-cidr/China_Unicom_v6.txt
+https://china-operator-ip.yfgao.com/unicom6.txt
 ```
 
 ## ct6
 
 ```
-https://cdn.jsdelivr.net/gh/GuangYu-yu/chinaisp-cidr/China_Telecom_v6.txt
+https://china-operator-ip.yfgao.com/chinanet6.txt
 ```
 
 ## cmcc4
 
 ```
-https://cdn.jsdelivr.net/gh/GuangYu-yu/chinaisp-cidr/China_Mobile_v4.txt
+https://china-operator-ip.yfgao.com/cmcc.txt
 ```
 
 ## cnc4
 
 ```
-https://cdn.jsdelivr.net/gh/GuangYu-yu/chinaisp-cidr/China_Unicom_v4.txt
+https://china-operator-ip.yfgao.com/unicom.txt
 ```
 
 ## ct4
 
 ```
-https://cdn.jsdelivr.net/gh/GuangYu-yu/chinaisp-cidr/China_Telecom_v4.txt
+https://china-operator-ip.yfgao.com/chinanet.txt
 ```
 
 # 计划任务
