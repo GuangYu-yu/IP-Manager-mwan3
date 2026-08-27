@@ -99,5 +99,5 @@ https://china-operator-ip.yfgao.com/chinanet.txt
 # 计划任务
 
 ```
-0 15 * * * for name in cmcc6 cnc6 ct6 cmcc4 cnc4 ct4 cf4 cf6; do name="$name" . /etc/config/nftset_configs/vars.sh; clear_and_update_nftset; done
+0 15 * * * . /etc/config/nftset_configs/vars.sh; awk '{print $1}' /etc/config/nftset_configs/nftset_list | while read name; do name="$name" clear_and_update_nftset; done
 ```
