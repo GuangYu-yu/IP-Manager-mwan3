@@ -21,7 +21,7 @@ validate_input() {
 download_file() {
 	tgt=$1; src=$2; retries=3; count=0
 	while [ $count -lt $retries ]; do
-		curl -s -o "$tgt" "$src" && [ -s "$tgt" ] && return 0
+		wget -qO "$tgt" "$src" && [ -s "$tgt" ] && return 0
 		count=$((count + 1)); sleep 1
 	done
 	return 1
